@@ -7,7 +7,8 @@ function Get-AllAlertsWithDeletedResources {
     }
     Process {
         foreach ($item in $allSubscriptions) {
-            Select-AzSubscription $item -WarningAction SilentlyContinue -Verbose | Set-AzContext -Verbose | Out-Null
+            Select-AzSubscription $item -WarningAction SilentlyContinue | Set-AzContext | Out-Null
+            Write-Verbose "Getting all MetricAlertRule from subscription: '$($item.Name)'"
             $rules = Get-AzMetricAlertRuleV2 -WarningAction SilentlyContinue -Verbose
             if ($rules) {
                 [array]$allRules += @{
@@ -18,11 +19,11 @@ function Get-AllAlertsWithDeletedResources {
             }
         }
         foreach ($item in $allRules) {
-            Select-AzSubscription $item.Id -WarningAction SilentlyContinue -Verbose | Set-AzContext -Verbose | Out-Null
+            Write-Verbose "Number of MetricAlertRule: '$(($item.Rules).Count)' in subscription: '$($item.Name)'"
+            Select-AzSubscription $item.Id -WarningAction SilentlyContinue | Set-AzContext | Out-Null
             foreach ($rule in $item.Rules) {
                 $deletedScopes = @()
                 $scopeCount = ($rule.Scopes).Count
-                Write-Verbose "Number of scopes:'$scopeCount' Rule Id: $($rule.Id)"
                 foreach ($scope in $rule.Scopes) {
                     $testResource = Get-AzResource -ResourceId $scope -Verbose -WarningAction SilentlyContinue
                     if ($null -eq $testResource) {
@@ -30,9 +31,18 @@ function Get-AllAlertsWithDeletedResources {
                     }
                 }
                 if ($deletedScopes) {
-                    [array]$rulesToRemove += @{
-                        Id = $rule.Id
-                        DeletedScopes = $deletedScopes
+                    if(($deletedScopes.Count) -eq $scopeCount){
+                        Write-Verbose "Found possible rule for deletion. Rule Id: '$($rule.Id)' Number of Scopes: '$scopeCount' Number of deleted resources: '$(($deletedScopes).Count)'"
+                        [array]$rulesToRemove += @{
+                            Id = $rule.Id
+                            DeletedScopes = $deletedScopes
+                            Delete = $true
+                        }
+                    } else {
+                        [array]$rulesToRemove += @{
+                            Id = $rule.Id
+                            DeletedScopes = $deletedScopes
+                        }
                     }
                 }
             }
